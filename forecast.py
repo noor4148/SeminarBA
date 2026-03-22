@@ -89,7 +89,7 @@ def run(args):
         )
 
     # Fail if the checkpoint and model architecture don't match
-    ckpt = torch.load(args.ckpt_path, map_location=device)
+    ckpt = torch.load(args.ckpt_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt['state_dict'], strict=True)
 
     # Forecast the testing set
