@@ -107,7 +107,11 @@ def run(args):
     forecasts = np.array(forecasts)
     gt = np.array(gt)
 
-    rescale_vals = np.load(Path(args.data_folder) / 'normalization_scale.npy')[: args.eval_horizon]
+    # Rescale the values in such a way that it won't end up with a 0-dimentional vector
+    scale = float(np.load(Path(args.data_folder) / 'normalization_scale.npy'))
+    rescale_vals = np.full(args.eval_horizon, scale, dtype=np.float32)
+
+    #rescale_vals = np.load(Path(args.data_folder) / 'normalization_scale.npy')[: args.eval_horizon]
     rescaled_forecasts = forecasts * rescale_vals
     rescaled_gt = gt * rescale_vals
     print_error_metrics(gt, forecasts, rescaled_gt, rescaled_forecasts)
