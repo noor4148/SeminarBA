@@ -38,9 +38,9 @@ def run(args):
     item_codes = test_df['external_code'].values
 
      # Load category and color encodings
-    cat_dict = torch.load(Path(args.data_folder + 'category_labels.pt'))
-    col_dict = torch.load(Path(args.data_folder + 'color_labels.pt'))
-    fab_dict = torch.load(Path(args.data_folder + 'fabric_labels.pt'))
+    cat_dict = torch.load(Path(args.data_folder + 'category_labels.pt'), weights_only=False)
+    col_dict = torch.load(Path(args.data_folder + 'color_labels.pt'), weights_only=False)
+    fab_dict = torch.load(Path(args.data_folder + 'fabric_labels.pt'), weights_only=False)
 
     # Load Google trends
     gtrends = pd.read_csv(Path(args.data_folder + 'gtrends.csv'), index_col=[0], parse_dates=True)
@@ -114,7 +114,7 @@ def run(args):
     forecasts = np.array(forecasts)
     gt = np.array(gt)
 
-    rescale_vals = np.load(args.data_folder + 'normalization_scale.npy')
+    rescale_vals = np.load(args.data_folder + 'normalization_scale.npy')[:args.eval_horizon]
     rescaled_forecasts = forecasts * rescale_vals
     rescaled_gt = gt * rescale_vals
     print_error_metrics(gt, forecasts, rescaled_gt, rescaled_forecasts)
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     # Instead of using the output_dim for the model and for the evaluation we split this such that you do not change
     # the model when having two different values
     parser.add_argument('--model_output_dim', type=int, default=12)
-    parser.add_argument('--eval_horizon', type=int, default=6)
+    parser.add_argument('--eval_horizon', type=int, default=12)
 
     parser.add_argument('--use_encoder_mask', type=int, default=1)
     parser.add_argument('--autoregressive', type=int, default=0)

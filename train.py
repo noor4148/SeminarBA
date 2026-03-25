@@ -23,9 +23,9 @@ def run(args):
     train_df = pd.read_csv(Path(args.data_folder + 'train.csv'), parse_dates=['release_date'])
 
     # Load category and color encodings
-    cat_dict = torch.load(Path(args.data_folder + 'category_labels.pt'))
-    col_dict = torch.load(Path(args.data_folder + 'color_labels.pt'))
-    fab_dict = torch.load(Path(args.data_folder + 'fabric_labels.pt'))
+    cat_dict = torch.load(Path(args.data_folder + 'category_labels.pt'), weights_only=False)
+    col_dict = torch.load(Path(args.data_folder + 'color_labels.pt'), weights_only=False)
+    fab_dict = torch.load(Path(args.data_folder + 'fabric_labels.pt'), weights_only=False)
 
     # Load Google trends
     gtrends = pd.read_csv(Path(args.data_folder + 'gtrends.csv'), index_col=[0], parse_dates=True)
@@ -99,14 +99,14 @@ def run(args):
         save_top_k=1
     )
 
-    wandb.init(entity=args.wandb_entity, project=args.wandb_proj, name=args.wandb_run)
-    wandb_logger = pl_loggers.WandbLogger()
-    wandb_logger.watch(model)
+    # wandb.init(entity=args.wandb_entity, project=args.wandb_proj, name=args.wandb_run)
+    # wandb_logger = pl_loggers.WandbLogger()
+    # wandb_logger.watch(model)
 
     # If you wish to use Tensorboard you can change the logger to:
-    # tb_logger = pl_loggers.TensorBoardLogger(args.log_dir+'/', name=model_savename)
+    tb_logger = pl_loggers.TensorBoardLogger(args.log_dir+'/', name=model_savename)
     trainer = pl.Trainer(gpus=[args.gpu_num], max_epochs=args.epochs, check_val_every_n_epoch=5,
-                         logger=wandb_logger, callbacks=[checkpoint_callback])
+                         logger=tb_logger, callbacks=[checkpoint_callback])
 
     # Fit model
     trainer.fit(model, train_dataloaders=train_loader,

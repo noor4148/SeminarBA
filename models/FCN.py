@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from transformers import pipeline
 from torchvision import models
-from fairseq.optim.adafactor import Adafactor
+from transformers.optimization import Adafactor
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=52):
@@ -243,8 +243,8 @@ class FCN(pl.LightningModule):
         return forecast.view(-1, self.output_len)
 
     def configure_optimizers(self):
-        optimizer = Adafactor(self.parameters(), scale_parameter=True, relative_step=True, warmup_init=True, lr=None)
-
+        #optimizer = Adafactor(self.parameters(), scale_parameter=True, relative_step=True, warmup_init=True, lr=None)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return optimizer
 
     def training_step(self, train_batch, batch_idx):

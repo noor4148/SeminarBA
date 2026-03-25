@@ -34,9 +34,9 @@ def run(args):
         sales_horizon=args.model_output_dim,
     ).get_loader(batch_size=args.val_batch_size, shuffle=False, num_workers=args.num_workers)
 
-    cat_dict = torch.load(Path(args.data_folder) / 'category_labels.pt')
-    col_dict = torch.load(Path(args.data_folder) / 'color_labels.pt')
-    fab_dict = torch.load(Path(args.data_folder) / 'fabric_labels.pt')
+    cat_dict = torch.load(Path(args.data_folder) / 'category_labels.pt', weights_only=False)
+    col_dict = torch.load(Path(args.data_folder) / 'color_labels.pt', weights_only=False)
+    fab_dict = torch.load(Path(args.data_folder) / 'fabric_labels.pt', weights_only=False)
 
     baseline_gtm = GTM(
         embedding_dim=args.embedding_dim,

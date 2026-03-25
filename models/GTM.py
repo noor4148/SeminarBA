@@ -5,8 +5,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from transformers import pipeline
 from torchvision import models
-from fairseq.optim.adafactor import Adafactor
-
+from transformers.optimization import Adafactor
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=52):
@@ -202,6 +201,7 @@ class TransformerDecoderLayer(nn.Module):
         super(TransformerDecoderLayer, self).__init__()
         
         self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        self.self_attn = self.multihead_attn
 
         # Implementation of Feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward)
@@ -221,7 +221,7 @@ class TransformerDecoderLayer(nn.Module):
         super(TransformerDecoderLayer, self).__setstate__(state)
 
     def forward(self, tgt, memory, tgt_mask = None, memory_mask = None, tgt_key_padding_mask = None, 
-            memory_key_padding_mask = None):
+            memory_key_padding_mask = None, **kwargs):
 
         tgt2, attn_weights = self.multihead_attn(tgt, memory, memory)
         tgt = tgt + self.dropout2(tgt2)
@@ -296,8 +296,8 @@ class GTM(pl.LightningModule):
         return forecast.view(-1, self.output_len), attn_weights
 
     def configure_optimizers(self):
-        optimizer = Adafactor(self.parameters(),scale_parameter=True, relative_step=True, warmup_init=True, lr=None)
-    
+        #optimizer = Adafactor(self.parameters(),scale_parameter=True, relative_step=True, warmup_init=True, lr=None)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return [optimizer]
 
 

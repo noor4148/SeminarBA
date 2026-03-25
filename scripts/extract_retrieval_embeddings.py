@@ -17,9 +17,9 @@ def run(args):
     pl.seed_everything(args.seed)
 
     combined_df = combine_splits(data_folder=args.data_folder, val_fraction=args.val_fraction)
-    cat_dict = torch.load(Path(args.data_folder) / 'category_labels.pt')
-    col_dict = torch.load(Path(args.data_folder) / 'color_labels.pt')
-    fab_dict = torch.load(Path(args.data_folder) / 'fabric_labels.pt')
+    cat_dict = torch.load(Path(args.data_folder) / 'category_labels.pt', weights_only=False)
+    col_dict = torch.load(Path(args.data_folder) / 'color_labels.pt', weights_only=False)
+    fab_dict = torch.load(Path(args.data_folder) / 'fabric_labels.pt', weights_only=False)
     gtrends = pd.read_csv(Path(args.data_folder) / 'gtrends.csv', index_col=[0], parse_dates=True)
 
     dataset = ProductFeatureDataset(

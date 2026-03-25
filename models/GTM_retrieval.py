@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from fairseq.optim.adafactor import Adafactor
+from transformers.optimization import Adafactor
 
 from utils.embedding_store import RetrievalStore
 from utils.retriever import TemporalNearestNeighborRetriever
@@ -102,7 +102,8 @@ class GTMRetrieval(pl.LightningModule):
         return forecast, attn_weights
 
     def configure_optimizers(self):
-        optimizer = Adafactor(self.parameters(), scale_parameter=True, relative_step=True, warmup_init=True, lr=None)
+        #optimizer = Adafactor(self.parameters(), scale_parameter=True, relative_step=True, warmup_init=True, lr=None)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return [optimizer]
 
     def training_step(self, train_batch, batch_idx):
