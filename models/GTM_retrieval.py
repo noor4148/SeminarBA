@@ -17,8 +17,8 @@ class GTMRetrieval(pl.LightningModule):
         retrieval_store_path,
         retrieval_observation_horizon=12,
         retrieval_k=5,
-        retrieval_projector_hidden_dim=64,
-        augment_hidden_dim=64,
+        retrieval_projector_hidden_dim=128,
+        augment_hidden_dim=128,
         normalization_scale_value=1065.0,
     ):
         super().__init__()

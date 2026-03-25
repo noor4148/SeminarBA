@@ -146,7 +146,7 @@ if __name__ == '__main__':
     parser.add_argument('--trend_len', type=int, default=52)
     parser.add_argument('--num_trends', type=int, default=3)
     parser.add_argument('--embedding_dim', type=int, default=32)
-    parser.add_argument('--hidden_dim', type=int, default=64)
+    parser.add_argument('--hidden_dim', type=int, default=128)
     parser.add_argument('--model_output_dim', type=int, default=12)
     parser.add_argument('--eval_horizon', type=int, default=12)
     parser.add_argument('--use_encoder_mask', type=int, default=1)
