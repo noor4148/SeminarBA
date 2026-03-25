@@ -5,6 +5,10 @@ import pandas as pd
 import pytorch_lightning as pl
 import torch
 
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.GTM import GTM
 from utils.data_retrieval import ProductFeatureDataset
 from utils.embedding_store import RetrievalStore

@@ -69,7 +69,10 @@ class ProductFeatureDataset(_BaseRetrievalDataset):
     def __getitem__(self, idx):
         row = self.data_df.iloc[idx]
         item_sales = self._sales_tensor(row)
-        temporal_features = torch.FloatTensor(row.iloc[13:17].values.astype(np.float32))
+        temporal_features = torch.tensor(
+            row[['day', 'week', 'month', 'year']].to_numpy(dtype=np.float32),
+            dtype=torch.float32
+        )
         multitrends = self._row_to_multitrends(row)
         category = torch.tensor(self.cat_dict[row['category']], dtype=torch.long)
         color = torch.tensor(self.col_dict[row['color']], dtype=torch.long)

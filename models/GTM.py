@@ -267,6 +267,16 @@ class GTM(pl.LightningModule):
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0)).to('cuda:'+str(self.gpu_num))
         return mask
 
+    def encode_static_features(self, category, color, fabric, temporal_features, images):
+        # Encode features and get inputs
+        img_encoding = self.image_encoder(images)
+        dummy_encoding = self.dummy_encoder(temporal_features)
+        text_encoding = self.text_encoder(category, color, fabric)
+
+        # Fuse static features together
+        static_feature_fusion = self.static_feature_encoder(img_encoding, text_encoding, dummy_encoding)
+        return static_feature_fusion
+
     def forward(self, category, color, fabric, temporal_features, gtrends, images):
         # Encode features and get inputs
         img_encoding = self.image_encoder(images)
