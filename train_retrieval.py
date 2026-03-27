@@ -102,7 +102,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=21)
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--gpu_num', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--val_batch_size', type=int, default=32)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--check_val_every_n_epoch', type=int, default=5)
@@ -121,7 +121,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_hidden_layers', type=int, default=1)
 
     parser.add_argument('--retrieval_observation_horizon', type=int, default=12)
-    parser.add_argument('--retrieval_k', type=int, default=5)
+    parser.add_argument('--retrieval_k', type=int, default=3)
     parser.add_argument('--retrieval_projector_hidden_dim', type=int, default=64)
     parser.add_argument('--augment_hidden_dim', type=int, default=64)
     parser.add_argument('--normalization_scale_value', type=float, default=1065.0)
