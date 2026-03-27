@@ -17,40 +17,40 @@ def cal_error_metrics(gt, forecasts):
     wape = 100 * np.sum(np.sum(np.abs(gt - forecasts), axis=-1)) / np.sum(gt)
 
     return round(mae, 3), round(wape, 3)
-    
+
 
 def print_error_metrics(y_test, y_hat, rescaled_y_test, rescaled_y_hat):
     mae, wape = cal_error_metrics(y_test, y_hat)
     rescaled_mae, rescaled_wape = cal_error_metrics(rescaled_y_test, rescaled_y_hat)
     print(mae, wape, rescaled_mae, rescaled_wape)
 
+
 def run(args):
     print(args)
-    
+
     # Set up CUDA
     device = torch.device(f'cuda:{args.gpu_num}' if torch.cuda.is_available() else 'cpu')
 
     # Seeds for reproducibility
     pl.seed_everything(args.seed)
 
-    # Load sales data    
+    # Load sales data
     test_df = pd.read_csv(Path(args.data_folder + 'test.csv'), parse_dates=['release_date'])
     item_codes = test_df['external_code'].values
 
-     # Load category and color encodings
+    # Load category and color encodings
     cat_dict = torch.load(Path(args.data_folder + 'category_labels.pt'), weights_only=False)
     col_dict = torch.load(Path(args.data_folder + 'color_labels.pt'), weights_only=False)
     fab_dict = torch.load(Path(args.data_folder + 'fabric_labels.pt'), weights_only=False)
 
     # Load Google trends
     gtrends = pd.read_csv(Path(args.data_folder + 'gtrends.csv'), index_col=[0], parse_dates=True)
-    
-    test_loader = ZeroShotDataset(test_df, Path(args.data_folder + '/images'), gtrends, cat_dict, col_dict, \
-            fab_dict, args.trend_len).get_loader(batch_size=1, train=False)
 
+    test_loader = ZeroShotDataset(test_df, Path(args.data_folder + '/images'), gtrends, cat_dict, col_dict, \
+                                  fab_dict, args.trend_len).get_loader(batch_size=1, train=False)
 
     model_savename = f'{args.wandb_run}_model{args.model_output_dim}_eval{args.eval_horizon}'
-    
+
     # Create model
     model = None
     if args.model_type == 'FCN':
@@ -95,12 +95,12 @@ def run(args):
     # Forecast the testing set
     model.to(device)
     model.eval()
-    gt, forecasts, attns = [], [],[]
+    gt, forecasts, attns = [], [], []
     for test_data in tqdm(test_loader, total=len(test_loader), ascii=True):
         with torch.no_grad():
             test_data = [tensor.to(device) for tensor in test_data]
-            item_sales, category, color, textures, temporal_features, gtrends, images =  test_data
-            y_pred, att = model(category, color,textures, temporal_features, gtrends, images)
+            item_sales, category, color, textures, temporal_features, gtrends, images = test_data
+            y_pred, att = model(category, color, textures, temporal_features, gtrends, images)
 
             # Make sure you cut the evaluation horizon instead of the model architecture
             y_pred_np = y_pred.detach().cpu().numpy().reshape(-1)
@@ -114,7 +114,7 @@ def run(args):
     forecasts = np.array(forecasts)
     gt = np.array(gt)
 
-    #rescale_vals = np.load(args.data_folder + 'normalization_scale.npy')[:args.eval_horizon]
+    # rescale_vals = np.load(args.data_folder + 'normalization_scale.npy')[:args.eval_horizon]
 
     # Rescale the values in such a way that it won't end up with a 0-dimentional vector
     scale = float(np.load(Path(args.data_folder) / 'normalization_scale.npy'))
@@ -125,7 +125,9 @@ def run(args):
     print_error_metrics(gt, forecasts, rescaled_gt, rescaled_forecasts)
 
     Path('results').mkdir(parents=True, exist_ok=True)
-    torch.save({'results': rescaled_forecasts, 'gts': rescaled_gt, 'codes': item_codes.tolist()}, Path('results/' + model_savename+'.pth'))
+    torch.save({'results': rescaled_forecasts, 'gts': rescaled_gt, 'codes': item_codes.tolist()},
+               Path('results/' + model_savename + '.pth'))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Zero-shot sales forecasting')
@@ -155,7 +157,7 @@ if __name__ == '__main__':
     parser.add_argument('--autoregressive', type=int, default=0)
     parser.add_argument('--num_attn_heads', type=int, default=4)
     parser.add_argument('--num_hidden_layers', type=int, default=1)
-    
+
     # wandb arguments
     parser.add_argument('--wandb_run', type=str, default='Run1')
 
