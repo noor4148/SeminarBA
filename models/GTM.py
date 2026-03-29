@@ -280,26 +280,60 @@ class GTM(pl.LightningModule):
             'cuda:' + str(self.gpu_num))
         return mask
 
+#=================
     def encode_static_features(self, category, color, fabric, temporal_features, images):
         # Encode features and get inputs
         img_encoding = self.image_encoder(images)
-        dummy_encoding = self.dummy_encoder(temporal_features)
+        #dummy_encoding = self.dummy_encoder(temporal_features)
+        #text_encoding = self.text_encoder(category, color, fabric)
+
         text_encoding = self.text_encoder(category, color, fabric)
 
+        dummy_encoding = torch.zeros(
+            category.size(0),
+            self.embedding_dim,
+            device=images.device,
+            dtype=img_encoding.dtype,
+        )
+
+        static_feature_fusion = self.static_feature_encoder(
+            img_encoding,
+            text_encoding,
+            dummy_encoding,
+        )
+
         # Fuse static features together
-        static_feature_fusion = self.static_feature_encoder(img_encoding, text_encoding, dummy_encoding)
+        #static_feature_fusion = self.static_feature_encoder(img_encoding, text_encoding, dummy_encoding)
         return static_feature_fusion
 
+    # =================
     def forward(self, category, color, fabric, temporal_features, gtrends, images):
         # Encode features and get inputs
+        #img_encoding = self.image_encoder(images)
+        #dummy_encoding = self.dummy_encoder(temporal_features)
+        #text_encoding = self.text_encoder(category, color, fabric)
+        #gtrend_encoding = self.gtrend_encoder(gtrends)
+
+        # Fuse static features together
+        #static_feature_fusion = self.static_feature_encoder(img_encoding, text_encoding, dummy_encoding)
+
         img_encoding = self.image_encoder(images)
-        dummy_encoding = self.dummy_encoder(temporal_features)
         text_encoding = self.text_encoder(category, color, fabric)
         gtrend_encoding = self.gtrend_encoder(gtrends)
 
-        # Fuse static features together
-        static_feature_fusion = self.static_feature_encoder(img_encoding, text_encoding, dummy_encoding)
+        dummy_encoding = torch.zeros(
+            category.size(0),
+            self.embedding_dim,
+            device=images.device,
+            dtype=img_encoding.dtype,
+        )
 
+        # Fuse static features together
+        static_feature_fusion = self.static_feature_encoder(
+            img_encoding,
+            text_encoding,
+            dummy_encoding,
+        )
         if self.autoregressive == 1:
             # Decode
             tgt = torch.zeros(self.output_len, gtrend_encoding.shape[1], gtrend_encoding.shape[-1]).to(
