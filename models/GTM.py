@@ -1,16 +1,16 @@
 import math
+
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import pytorch_lightning as pl
-from transformers import pipeline
 from torchvision import models
-from transformers.optimization import Adafactor
+from transformers import pipeline
 
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=52):
-        super(PositionalEncoding, self).__init__()
+        super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
         pe = torch.zeros(max_len, d_model)
@@ -19,43 +19,37 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
+        x = x + self.pe[: x.size(0), :]
         return self.dropout(x)
 
 
 class TimeDistributed(nn.Module):
-    # Takes any module and stacks the time dimension with the batch dimenison of inputs before applying the module
-    # Insipired from https://keras.io/api/layers/recurrent_layers/time_distributed/
-    # https://discuss.pytorch.org/t/any-pytorch-function-can-work-as-keras-timedistributed/1346/4
     def __init__(self, module, batch_first=True):
-        super(TimeDistributed, self).__init__()
-        self.module = module  # Can be any layer we wish to apply like Linear, Conv etc
+        super().__init__()
+        self.module = module
         self.batch_first = batch_first
 
     def forward(self, x):
         if len(x.size()) <= 2:
             return self.module(x)
 
-        # Squash samples and timesteps into a single axis
         x_reshape = x.contiguous().view(-1, x.size(-1))
-
         y = self.module(x_reshape)
 
-        # We have to reshape Y
         if self.batch_first:
-            y = y.contiguous().view(x.size(0), -1, y.size(-1))  # (samples, timesteps, output_size)
+            y = y.contiguous().view(x.size(0), -1, y.size(-1))
         else:
-            y = y.view(-1, x.size(1), y.size(-1))  # (timesteps, samples, output_size)
+            y = y.view(-1, x.size(1), y.size(-1))
 
         return y
 
 
 class FusionNetwork(nn.Module):
     def __init__(self, embedding_dim, hidden_dim, use_img, use_text, dropout=0.2):
-        super(FusionNetwork, self).__init__()
+        super().__init__()
 
         self.img_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.img_linear = nn.Linear(2048, embedding_dim)
@@ -67,15 +61,13 @@ class FusionNetwork(nn.Module):
             nn.Linear(input_dim, input_dim, bias=False),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(input_dim, hidden_dim)
+            nn.Linear(input_dim, hidden_dim),
         )
 
     def forward(self, img_encoding, text_encoding, dummy_encoding):
-        # Fuse static features together
         pooled_img = self.img_pool(img_encoding)
         condensed_img = self.img_linear(pooled_img.flatten(1))
 
-        # Build input
         decoder_inputs = []
         if self.use_img == 1:
             decoder_inputs.append(condensed_img)
@@ -85,8 +77,6 @@ class FusionNetwork(nn.Module):
         concat_features = torch.cat(decoder_inputs, dim=1)
 
         final = self.feature_fusion(concat_features)
-        # final = self.feature_fusion(dummy_encoding)
-
         return final
 
 
@@ -101,30 +91,39 @@ class GTrendEmbedder(nn.Module):
         self.use_mask = use_mask
         self.gpu_num = gpu_num
 
-    def _generate_encoder_mask(self, size, forecast_horizon):
-        mask = torch.zeros((size, size))
+    def _generate_encoder_mask(self, size, forecast_horizon, device):
+        mask = torch.zeros((size, size), device=device)
         split = math.gcd(size, forecast_horizon)
         for i in range(0, size, split):
-            mask[i:i + split, i:i + split] = 1
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0)).to(
-            'cuda:' + str(self.gpu_num))
-        return mask
-
-    def _generate_square_subsequent_mask(self, size):
-        mask = (torch.triu(torch.ones(size, size)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0)).to(
-            'cuda:' + str(self.gpu_num))
+            mask[i : i + split, i : i + split] = 1
+        mask = mask.float().masked_fill(mask == 0, float("-inf")).masked_fill(mask == 1, float(0.0))
         return mask
 
     def forward(self, gtrends):
         gtrend_emb = self.input_linear(gtrends.permute(0, 2, 1))
         gtrend_emb = self.pos_embedding(gtrend_emb.permute(1, 0, 2))
-        input_mask = self._generate_encoder_mask(gtrend_emb.shape[0], self.forecast_horizon)
+        input_mask = self._generate_encoder_mask(gtrend_emb.shape[0], self.forecast_horizon, gtrend_emb.device)
         if self.use_mask == 1:
             gtrend_emb = self.encoder(gtrend_emb, input_mask)
         else:
             gtrend_emb = self.encoder(gtrend_emb)
         return gtrend_emb
+
+
+class RetrievalMemoryEncoder(nn.Module):
+    def __init__(self, hidden_dim, seq_len, num_heads=4):
+        super().__init__()
+        self.input_linear = TimeDistributed(nn.Linear(1, hidden_dim))
+        self.pos_embedding = PositionalEncoding(hidden_dim, max_len=seq_len)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads, dropout=0.1)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
+
+    def forward(self, retrieval_curve):
+        # retrieval_curve: [batch, seq_len]
+        retrieval_curve = retrieval_curve.unsqueeze(-1)
+        retrieval_emb = self.input_linear(retrieval_curve)
+        retrieval_emb = self.pos_embedding(retrieval_emb.permute(1, 0, 2))
+        return self.encoder(retrieval_emb)
 
 
 class TextEmbedder(nn.Module):
@@ -134,52 +133,46 @@ class TextEmbedder(nn.Module):
         self.cat_dict = {v: k for k, v in cat_dict.items()}
         self.col_dict = {v: k for k, v in col_dict.items()}
         self.fab_dict = {v: k for k, v in fab_dict.items()}
-        self.word_embedder = pipeline('feature-extraction', model='bert-base-uncased')
+        self.word_embedder = pipeline("feature-extraction", model="bert-base-uncased")
         self.fc = nn.Linear(768, embedding_dim)
         self.dropout = nn.Dropout(0.1)
         self.gpu_num = gpu_num
 
     def forward(self, category, color, fabric):
-        textual_description = [self.col_dict[color.detach().cpu().numpy().tolist()[i]] + ' ' \
-                               + self.fab_dict[fabric.detach().cpu().numpy().tolist()[i]] + ' ' \
-                               + self.cat_dict[category.detach().cpu().numpy().tolist()[i]] for i in
-                               range(len(category))]
+        textual_description = [
+            self.col_dict[color.detach().cpu().numpy().tolist()[i]]
+            + " "
+            + self.fab_dict[fabric.detach().cpu().numpy().tolist()[i]]
+            + " "
+            + self.cat_dict[category.detach().cpu().numpy().tolist()[i]]
+            for i in range(len(category))
+        ]
 
-        # Use BERT to extract features
         word_embeddings = self.word_embedder(textual_description)
-
-        # BERT gives us embeddings for [CLS] ..  [EOS], which is why we only average the embeddings in the range [1:-1]
-        # We're not fine tuning BERT and we don't want the noise coming from [CLS] or [EOS]
         word_embeddings = [torch.FloatTensor(x[0][1:-1]).mean(axis=0) for x in word_embeddings]
-        word_embeddings = torch.stack(word_embeddings).to('cuda:' + str(self.gpu_num))
-
-        # Embed to our embedding space
+        word_embeddings = torch.stack(word_embeddings).to(fabric.device)
         word_embeddings = self.dropout(self.fc(word_embeddings))
-
         return word_embeddings
 
 
 class ImageEmbedder(nn.Module):
     def __init__(self):
         super().__init__()
-        # Img feature extraction
-        resnet = models.resnet50(pretrained=True)
+        try:
+            weights = models.ResNet50_Weights.DEFAULT
+            resnet = models.resnet50(weights=weights)
+        except AttributeError:
+            resnet = models.resnet50(pretrained=True)
         modules = list(resnet.children())[:-2]
         self.resnet = nn.Sequential(*modules)
         for p in self.resnet.parameters():
             p.requires_grad = False
 
-        # Fine tune resnet
-        # for c in list(self.resnet.children())[6:]:
-        #     for p in c.parameters():
-        #         p.requires_grad = True
-
     def forward(self, images):
         img_embeddings = self.resnet(images)
         size = img_embeddings.size()
         out = img_embeddings.view(*size[:2], -1)
-
-        return out.view(*size).contiguous()  # batch_size, 2048, image_size/32, image_size/32
+        return out.view(*size).contiguous()
 
 
 class DummyEmbedder(nn.Module):
@@ -194,45 +187,55 @@ class DummyEmbedder(nn.Module):
         self.dropout = nn.Dropout(0.2)
 
     def forward(self, temporal_features):
-        # Temporal dummy variables (day, week, month, year)
-        d, w, m, y = temporal_features[:, 0].unsqueeze(1), temporal_features[:, 1].unsqueeze(1), \
-            temporal_features[:, 2].unsqueeze(1), temporal_features[:, 3].unsqueeze(1)
-        d_emb, w_emb, m_emb, y_emb = self.day_embedding(d), self.week_embedding(w), self.month_embedding(
-            m), self.year_embedding(y)
+        d = temporal_features[:, 0].unsqueeze(1)
+        w = temporal_features[:, 1].unsqueeze(1)
+        m = temporal_features[:, 2].unsqueeze(1)
+        y = temporal_features[:, 3].unsqueeze(1)
+        d_emb = self.day_embedding(d)
+        w_emb = self.week_embedding(w)
+        m_emb = self.month_embedding(m)
+        y_emb = self.year_embedding(y)
         temporal_embeddings = self.dummy_fusion(torch.cat([d_emb, w_emb, m_emb, y_emb], dim=1))
         temporal_embeddings = self.dropout(temporal_embeddings)
-
         return temporal_embeddings
 
 
 class TransformerDecoderLayer(nn.Module):
-
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation="relu"):
-        super(TransformerDecoderLayer, self).__init__()
-
+        super().__init__()
         self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
         self.self_attn = self.multihead_attn
-
-        # Implementation of Feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
-
         self.norm2 = nn.LayerNorm(d_model)
         self.norm3 = nn.LayerNorm(d_model)
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
-
         self.activation = F.relu
 
     def __setstate__(self, state):
-        if 'activation' not in state:
-            state['activation'] = F.relu
-        super(TransformerDecoderLayer, self).__setstate__(state)
+        if "activation" not in state:
+            state["activation"] = F.relu
+        super().__setstate__(state)
 
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None,
-                memory_key_padding_mask=None, **kwargs):
-        tgt2, attn_weights = self.multihead_attn(tgt, memory, memory)
+    def forward(
+        self,
+        tgt,
+        memory,
+        tgt_mask=None,
+        memory_mask=None,
+        tgt_key_padding_mask=None,
+        memory_key_padding_mask=None,
+        **kwargs,
+    ):
+        tgt2, attn_weights = self.multihead_attn(
+            tgt,
+            memory,
+            memory,
+            attn_mask=memory_mask,
+            key_padding_mask=memory_key_padding_mask,
+        )
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
@@ -242,9 +245,26 @@ class TransformerDecoderLayer(nn.Module):
 
 
 class GTM(pl.LightningModule):
-    def __init__(self, embedding_dim, hidden_dim, output_dim, num_heads, num_layers, use_text, use_img, \
-                 cat_dict, col_dict, fab_dict, trend_len, num_trends, gpu_num, use_encoder_mask=1,
-                 autoregressive=False):
+    def __init__(
+        self,
+        embedding_dim,
+        hidden_dim,
+        output_dim,
+        num_heads,
+        num_layers,
+        use_text,
+        use_img,
+        cat_dict,
+        col_dict,
+        fab_dict,
+        trend_len,
+        num_trends,
+        gpu_num,
+        use_encoder_mask=1,
+        autoregressive=False,
+        use_retrieval=False,
+        retrieval_seq_len=12,
+    ):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.embedding_dim = embedding_dim
@@ -252,88 +272,159 @@ class GTM(pl.LightningModule):
         self.use_encoder_mask = use_encoder_mask
         self.autoregressive = autoregressive
         self.gpu_num = gpu_num
+        self.use_retrieval = bool(use_retrieval)
+        self.retrieval_seq_len = retrieval_seq_len
         self.save_hyperparameters()
 
-        # Encoder
         self.dummy_encoder = DummyEmbedder(embedding_dim)
         self.image_encoder = ImageEmbedder()
         self.text_encoder = TextEmbedder(embedding_dim, cat_dict, col_dict, fab_dict, gpu_num)
         self.gtrend_encoder = GTrendEmbedder(output_dim, hidden_dim, use_encoder_mask, trend_len, num_trends, gpu_num)
         self.static_feature_encoder = FusionNetwork(embedding_dim, hidden_dim, use_img, use_text)
 
-        # Decoder
-        self.decoder_linear = TimeDistributed(nn.Linear(1, hidden_dim))
-        decoder_layer = TransformerDecoderLayer(d_model=self.hidden_dim, nhead=num_heads, \
-                                                dim_feedforward=self.hidden_dim * 4, dropout=0.1)
+        if self.use_retrieval:
+            self.retrieval_encoder = RetrievalMemoryEncoder(hidden_dim, retrieval_seq_len, num_heads=num_heads)
+        else:
+            self.retrieval_encoder = None
 
-        if self.autoregressive: self.pos_encoder = PositionalEncoding(hidden_dim, max_len=12)
+        self.decoder_linear = TimeDistributed(nn.Linear(1, hidden_dim))
+        decoder_layer = TransformerDecoderLayer(
+            d_model=self.hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=self.hidden_dim * 4,
+            dropout=0.1,
+        )
+
+        if self.autoregressive:
+            self.pos_encoder = PositionalEncoding(hidden_dim, max_len=12)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers)
 
         self.decoder_fc = nn.Sequential(
             nn.Linear(hidden_dim, self.output_len if not self.autoregressive else 1),
-            nn.Dropout(0.2)
+            nn.Dropout(0.2),
         )
 
-    def _generate_square_subsequent_mask(self, size):
-        mask = (torch.triu(torch.ones(size, size)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0)).to(
-            'cuda:' + str(self.gpu_num))
+    def _generate_square_subsequent_mask(self, size, device):
+        mask = (torch.triu(torch.ones(size, size, device=device)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float("-inf")).masked_fill(mask == 1, float(0.0))
         return mask
 
-    def forward(self, category, color, fabric, temporal_features, gtrends, images):
-        # Encode features and get inputs
+    @staticmethod
+    def _unpack_batch(batch):
+        if len(batch) == 7:
+            item_sales, category, color, fabric, temporal_features, gtrends, images = batch
+            analog_curve = None
+            analog_available = None
+        elif len(batch) == 9:
+            item_sales, category, color, fabric, temporal_features, gtrends, images, analog_curve, analog_available = batch
+        else:
+            raise ValueError(f"Unexpected batch size {len(batch)}.")
+        return item_sales, category, color, fabric, temporal_features, gtrends, images, analog_curve, analog_available
+
+    def _build_memory(self, gtrend_encoding, analog_curve=None, analog_available=None):
+        memory = gtrend_encoding
+        memory_key_padding_mask = None
+
+        if self.use_retrieval and analog_curve is not None and analog_available is not None:
+            retrieval_encoding = self.retrieval_encoder(analog_curve)
+            memory = torch.cat([gtrend_encoding, retrieval_encoding], dim=0)
+
+            batch_size = gtrend_encoding.shape[1]
+            gtrend_mask = torch.zeros(
+                (batch_size, gtrend_encoding.shape[0]),
+                dtype=torch.bool,
+                device=gtrend_encoding.device,
+            )
+            retrieval_mask = (~analog_available.bool()).unsqueeze(1).expand(-1, retrieval_encoding.shape[0])
+            memory_key_padding_mask = torch.cat([gtrend_mask, retrieval_mask], dim=1)
+
+        return memory, memory_key_padding_mask
+
+    def forward(
+        self,
+        category,
+        color,
+        fabric,
+        temporal_features,
+        gtrends,
+        images,
+        analog_curve=None,
+        analog_available=None,
+    ):
         img_encoding = self.image_encoder(images)
         dummy_encoding = self.dummy_encoder(temporal_features)
         text_encoding = self.text_encoder(category, color, fabric)
         gtrend_encoding = self.gtrend_encoder(gtrends)
 
-        # Fuse static features together
         static_feature_fusion = self.static_feature_encoder(img_encoding, text_encoding, dummy_encoding)
+        memory, memory_key_padding_mask = self._build_memory(gtrend_encoding, analog_curve, analog_available)
 
         if self.autoregressive == 1:
-            # Decode
-            tgt = torch.zeros(self.output_len, gtrend_encoding.shape[1], gtrend_encoding.shape[-1]).to('cuda:'+str(self.gpu_num))
+            tgt = torch.zeros(self.output_len, gtrend_encoding.shape[1], gtrend_encoding.shape[-1], device=gtrend_encoding.device)
             tgt[0] = static_feature_fusion
             tgt = self.pos_encoder(tgt)
-            tgt_mask = self._generate_square_subsequent_mask(self.output_len)
-            memory = gtrend_encoding
-            decoder_out, attn_weights = self.decoder(tgt, memory, tgt_mask)
+            tgt_mask = self._generate_square_subsequent_mask(self.output_len, gtrend_encoding.device)
+            decoder_out, attn_weights = self.decoder(
+                tgt,
+                memory,
+                tgt_mask=tgt_mask,
+                memory_key_padding_mask=memory_key_padding_mask,
+            )
             forecast = self.decoder_fc(decoder_out)
         else:
-            # Decode (generatively/non-autoregressively)
             tgt = static_feature_fusion.unsqueeze(0)
-            memory = gtrend_encoding
-            decoder_out, attn_weights = self.decoder(tgt, memory)
+            decoder_out, attn_weights = self.decoder(
+                tgt,
+                memory,
+                memory_key_padding_mask=memory_key_padding_mask,
+            )
             forecast = self.decoder_fc(decoder_out)
 
         return forecast.view(-1, self.output_len), attn_weights
 
     def configure_optimizers(self):
-        # optimizer = Adafactor(self.parameters(),scale_parameter=True, relative_step=True, warmup_init=True, lr=None)
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return [optimizer]
 
     def training_step(self, train_batch, batch_idx):
-        item_sales, category, color, fabric, temporal_features, gtrends, images = train_batch
-        forecasted_sales, _ = self.forward(category, color, fabric, temporal_features, gtrends, images)
+        item_sales, category, color, fabric, temporal_features, gtrends, images, analog_curve, analog_available = self._unpack_batch(train_batch)
+        forecasted_sales, _ = self.forward(
+            category,
+            color,
+            fabric,
+            temporal_features,
+            gtrends,
+            images,
+            analog_curve=analog_curve,
+            analog_available=analog_available,
+        )
         loss = F.mse_loss(item_sales, forecasted_sales.squeeze())
-        self.log('train_loss', loss)
-
+        self.log("train_loss", loss)
         return loss
 
     def validation_step(self, test_batch, batch_idx):
-        item_sales, category, color, fabric, temporal_features, gtrends, images = test_batch
-        forecasted_sales, _ = self.forward(category, color, fabric, temporal_features, gtrends, images)
-
+        item_sales, category, color, fabric, temporal_features, gtrends, images, analog_curve, analog_available = self._unpack_batch(test_batch)
+        forecasted_sales, _ = self.forward(
+            category,
+            color,
+            fabric,
+            temporal_features,
+            gtrends,
+            images,
+            analog_curve=analog_curve,
+            analog_available=analog_available,
+        )
         return item_sales.squeeze(), forecasted_sales.squeeze()
 
     def validation_epoch_end(self, val_step_outputs):
-        item_sales, forecasted_sales = [x[0] for x in val_step_outputs], [x[1] for x in val_step_outputs]
-        item_sales, forecasted_sales = torch.stack(item_sales), torch.stack(forecasted_sales)
-        rescaled_item_sales, rescaled_forecasted_sales = item_sales * 1065, forecasted_sales * 1065  # 1065 is the normalization factor (max of the sales of the training set)
+        item_sales = [x[0] for x in val_step_outputs]
+        forecasted_sales = [x[1] for x in val_step_outputs]
+        item_sales = torch.stack(item_sales)
+        forecasted_sales = torch.stack(forecasted_sales)
+        rescaled_item_sales = item_sales * 1065
+        rescaled_forecasted_sales = forecasted_sales * 1065
         loss = F.mse_loss(item_sales, forecasted_sales.squeeze())
         mae = F.l1_loss(rescaled_item_sales, rescaled_forecasted_sales)
-        self.log('val_mae', mae)
-        self.log('val_loss', loss)
-
-        print('Validation MAE:', mae.detach().cpu().numpy(), 'LR:', self.optimizers().param_groups[0]['lr'])
+        self.log("val_mae", mae)
+        self.log("val_loss", loss)
+        print("Validation MAE:", mae.detach().cpu().numpy(), "LR:", self.optimizers().param_groups[0]["lr"])
